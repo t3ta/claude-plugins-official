@@ -549,7 +549,11 @@ def handle_user_prompt_submit(input_data):
     elif sha:
         debug_log(f"Captured git baseline: {sha[:12]}")
     else:
-        debug_log("Failed to capture git baseline (not a git repo?)")
+        # Show cwd so the next reporter can immediately see when this isn't
+        # actually "not a git repo" but a path-encoding / permissions / git
+        # invocation failure. See #2099.
+        debug_log(f"Failed to capture git baseline (cwd={cwd!r}) — not a git repo, "
+                  f"or git invocation failed (check log entries above)")
 
     sys.exit(0)
 
@@ -856,23 +860,30 @@ def _detect_prev_upstream(repo_root, bash_output):
     # @{u}@{1} — only meaningful if an upstream is configured.
     for ref in ("@{u}@{1}", "@{push}@{1}"):
         try:
+            # See #2099: stdout is a SHA but stderr can carry non-ASCII git
+            # warnings — keep bytes raw to avoid cp1252 reader-thread crash.
             r = subprocess.run(
                 [*GIT_CMD, "rev-parse", "--verify", "-q", ref],
-                cwd=repo_root, capture_output=True, text=True, timeout=5,
+                cwd=repo_root, capture_output=True, timeout=5,
             )
-            if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip()
+            sha = r.stdout.decode("utf-8", errors="replace").strip()
+            if r.returncode == 0 and sha:
+                return sha
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
     main = _detect_main_branch(repo_root)
     if main:
         try:
+            # See #2099: drop text=True; decode bytes manually so a
+            # cp1252-undefined byte in git's stderr doesn't crash the
+            # reader thread.
             r = subprocess.run(
                 [*GIT_CMD, "merge-base", "HEAD", main],
-                cwd=repo_root, capture_output=True, text=True, timeout=5,
+                cwd=repo_root, capture_output=True, timeout=5,
             )
-            if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip()
+            sha = r.stdout.decode("utf-8", errors="replace").strip()
+            if r.returncode == 0 and sha:
+                return sha
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
     return None
@@ -1324,12 +1335,13 @@ def handle_commit_review_posttooluse(input_data):
     try:
         full_shas = []
         for s in shas:
+            # See #2099: drop text=True; decode manually for cp1252 safety.
             r = subprocess.run(
                 [*GIT_CMD, "rev-parse", "--verify", "-q", s],
-                cwd=repo_root, capture_output=True, text=True, timeout=5,
+                cwd=repo_root, capture_output=True, timeout=5,
             )
             if r.returncode == 0:
-                full_shas.append(r.stdout.strip())
+                full_shas.append(r.stdout.decode("utf-8", errors="replace").strip())
         _append_reviewed_shas(repo_root, full_shas, vulns_found=len(vulns or []))
     except Exception:
         pass
@@ -1531,9 +1543,10 @@ def handle_push_sweep_posttooluse(input_data):
     # both.
     head = None
     try:
+        # See #2099: drop text=True; decode manually for cp1252 safety.
         r = subprocess.run([*GIT_CMD, "rev-parse", "HEAD"], cwd=repo_root,
-                           capture_output=True, text=True, timeout=5)
-        head = r.stdout.strip() if r.returncode == 0 else None
+                           capture_output=True, timeout=5)
+        head = r.stdout.decode("utf-8", errors="replace").strip() if r.returncode == 0 else None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     push_section = _push_section(bash_output or "")
@@ -1563,14 +1576,15 @@ def handle_push_sweep_posttooluse(input_data):
         quiet_success = False
         if not (bash_output or "").strip() and not interrupted:
             try:
+                # See #2099: drop text=True; decode manually for cp1252 safety.
                 r_cur = subprocess.run(
                     [*GIT_CMD, "rev-parse", "--verify", "-q", "@{u}"],
-                    cwd=repo_root, capture_output=True, text=True, timeout=5)
+                    cwd=repo_root, capture_output=True, timeout=5)
                 r_prev = subprocess.run(
                     [*GIT_CMD, "rev-parse", "--verify", "-q", "@{u}@{1}"],
-                    cwd=repo_root, capture_output=True, text=True, timeout=5)
-                cur = r_cur.stdout.strip() if r_cur.returncode == 0 else ""
-                prev_u = r_prev.stdout.strip() if r_prev.returncode == 0 else ""
+                    cwd=repo_root, capture_output=True, timeout=5)
+                cur = r_cur.stdout.decode("utf-8", errors="replace").strip() if r_cur.returncode == 0 else ""
+                prev_u = r_prev.stdout.decode("utf-8", errors="replace").strip() if r_prev.returncode == 0 else ""
                 quiet_success = bool(cur and prev_u and cur == head and prev_u != cur)
             except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
                 pass
@@ -1584,11 +1598,12 @@ def handle_push_sweep_posttooluse(input_data):
         # reviewed-shas state.
         for local_ref in new_branch_matches:
             try:
+                # See #2099: drop text=True; decode manually for cp1252 safety.
                 r = subprocess.run(
                     [*GIT_CMD, "rev-parse", "--verify", "-q", local_ref],
-                    cwd=repo_root, capture_output=True, text=True, timeout=5,
+                    cwd=repo_root, capture_output=True, timeout=5,
                 )
-                local_sha = r.stdout.strip() if r.returncode == 0 else ""
+                local_sha = r.stdout.decode("utf-8", errors="replace").strip() if r.returncode == 0 else ""
             except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
                 local_sha = ""
             if local_sha and local_sha != head:

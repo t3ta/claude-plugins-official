@@ -22,6 +22,17 @@
 #        "${CLAUDE_PLUGIN_ROOT}/hooks/security_reminder_hook.py"
 set -e
 
+# Force UTF-8 for ALL Python filesystem + IO operations (PEP 540).
+# Without this, Windows Python defaults `locale.getpreferredencoding()` to
+# cp1252 — which makes `text=True` in subprocess.run / open() / json.load
+# crash the internal reader thread on any byte that's undefined in cp1252
+# (e.g. the 0x81 byte from ف, present in any path/filename with
+# Arabic/Hebrew/CJK characters). See #2056, #2099.
+#
+# No-op on macOS/Linux (already UTF-8). Must be set BEFORE Python starts —
+# changing it from inside the interpreter has no effect.
+export PYTHONUTF8=1
+
 # Git Bash / MSYS on Windows hands script paths to this shim in POSIX form
 # (`/c/Users/...`). When we exec a Windows `python.exe` (which we do on
 # Windows since `python3` is the Microsoft Store stub), python interprets the
