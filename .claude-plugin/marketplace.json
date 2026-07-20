@@ -1,10 +1,9 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "claude-plugins-official",
-  "description": "Directory of popular Claude Code extensions including development tools, productivity plugins, and MCP integrations",
+  "name": "t3ta-plugins",
+  "description": "Directory of popular Claude Code extensions including development tools, productivity plugins, and MCP integrations (personal fork with telegram disconnect fixes)",
   "owner": {
-    "name": "Anthropic",
-    "email": "support@anthropic.com"
+    "name": "t3ta"
   },
   "renames": {
     "adlc": "agentforce-adlc",
